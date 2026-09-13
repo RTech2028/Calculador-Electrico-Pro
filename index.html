@@ -244,7 +244,7 @@
   ];
   const RESISTIVIDAD_CU = 0.0175;
   const MAX_CAIDA_PORC = 3;
-  const VOLTAJES = [120,127,208,220,240,277,480];
+  const VOLTAJES = [120,127,208,220,240,277,380,400,415,480];
   // Voltajes trifásicos/industriales que no son típicos para circuitos de uso general
   // (tomacorrientes, iluminación, húmeda). Si aparecen combinados con esos tipos, se avisa.
   const VOLTAJES_INDUSTRIALES = [380,400,415,480];
@@ -339,8 +339,20 @@
       seguridad: 1,
       distancia: 0,
       curvaManual: 'auto',
+      cosFi: 0.85, // solo se aplica en circuitos tipo "Motor"; el resto de los tipos usa cos φ = 1
       cargas: [{ nombre: '', potencia: '', cantidad: 1 }]
     };
+  }
+
+  // Cantidad de conductores necesarios para un circuito, según fase y tipo. Se usa para la
+  // lista de materiales del informe PDF (bug corregido: antes se asumían siempre 3 conductores
+  // -fase, neutro, tierra- incluso en circuitos trifásicos, que necesitan más).
+  //  - Monofásico: 3 (fase, neutro, tierra)
+  //  - Trifásico "Motor": 4 (3 fases + tierra; los motores trifásicos no suelen necesitar neutro)
+  //  - Trifásico (resto de tipos): 5 (3 fases + neutro + tierra)
+  function numConductores(c) {
+    if (c.fase === 'tri') return c.tipo === 'motor' ? 4 : 5;
+    return 3;
   }
 
   // Devuelve un aviso si el voltaje elegido es atípico para el tipo de circuito (p. ej. 480V
@@ -369,9 +381,12 @@
     }, 0);
     if (totalPotencia <= 0) return null;
     const potenciaEfectiva = totalPotencia * c.demanda;
-    // Trifásico: I = P / (√3 · V). Monofásico: I = P / V.
+    // Trifásico: I = P / (√3 · V · cosφ). Monofásico: I = P / (V · cosφ).
+    // cos φ solo se aplica a circuitos tipo "Motor" (motores de inducción típicamente cos φ 0.80-0.90
+    // a plena carga); el resto de los tipos se asume carga resistiva/cos φ = 1, como antes.
     const factorCorriente = esTrifasico ? Math.sqrt(3) : 1;
-    const corrienteDiseno = (potenciaEfectiva * c.seguridad) / (factorCorriente * c.voltaje);
+    const cosFi = c.tipo === 'motor' ? Math.min(Math.max(parseFloat(c.cosFi) || 0.85, 0.5), 1) : 1;
+    const corrienteDiseno = (potenciaEfectiva * c.seguridad) / (factorCorriente * c.voltaje * cosFi);
     const maxBreakerTabla = BREAKERS[BREAKERS.length - 1];
     if (corrienteDiseno > maxBreakerTabla) {
       return { excede: true, corrienteDiseno, totalPotencia, potenciaEfectiva, avisoVoltaje: avisoVoltaje(c) };
@@ -414,7 +429,7 @@
     return {
       totalPotencia, potenciaEfectiva, corrienteDiseno, breaker, curva,
       cableMm2, cableAwg, cableLabel, caida: caidaFinal, norma, esNec,
-      gfci: tipoInfo.gfci || gfciForzado, gfciForzado, tipoLabel: tipoInfo.label, esTrifasico,
+      gfci: tipoInfo.gfci || gfciForzado, gfciForzado, tipoLabel: tipoInfo.label, esTrifasico, cosFi,
       avisoVoltaje: avisoVoltaje(c)
     };
   }
@@ -435,7 +450,7 @@
       { title: 'TABLERO', sub: '' },
       { title: 'BREAKER', sub: `${r.breaker} A · Curva ${r.curva}` },
     ];
-    if (r.gfci) boxes.push({ title: 'DIFERENCIAL', sub: 'GFCI/ID 30mA' });
+    if (r.gfci) boxes.push({ title: 'DIFERENCIAL', sub: `GFCI/ID 30mA · ${r.esTrifasico ? '4P' : '2P'}` });
     boxes.push({ title: 'CONDUCTOR', sub: r.cableLabel });
     boxes.push({ title: 'CARGA', sub: `${r.totalPotencia.toLocaleString('es-AR')} W` });
 
@@ -513,14 +528,20 @@
       <select id="fVoltaje">
         ${VOLTAJES.map(v => `<option value="${v}" ${c.voltaje == v ? 'selected' : ''}>${v} V</option>`).join('')}
       </select>
-      <div class="hint">Voltajes LATAM: 120/127/220/240V monofásico habitual · 208/277/480V sistemas trifásicos</div>
+      <div class="hint">Voltajes LATAM: 120/127/220/240V monofásico habitual · 208/277/380/400/415/480V sistemas trifásicos (380V trifásico es el estándar habitual en Argentina y buena parte de LATAM)</div>
 
       <label>Tipo de alimentación</label>
       <select id="fFase">
         <option value="mono" ${c.fase !== 'tri' ? 'selected' : ''}>Monofásico</option>
         <option value="tri" ${c.fase === 'tri' ? 'selected' : ''}>Trifásico</option>
       </select>
-      <div class="hint">Elegí Trifásico si el circuito se alimenta con 3 fases (típico en 208/400/480V). Cambia cómo se calcula la corriente y la caída de tensión.</div>
+      <div class="hint">Elegí Trifásico si el circuito se alimenta con 3 fases (típico en 208/380/400/480V). Cambia cómo se calcula la corriente y la caída de tensión.</div>
+
+      ${c.tipo === 'motor' ? `
+      <label>Factor de potencia (cos φ)</label>
+      <input type="number" id="fCosFi" value="${c.cosFi ?? 0.85}" min="0.5" max="1" step="0.01">
+      <div class="hint">Cos φ típico de un motor de inducción a plena carga: 0.80–0.90. Afecta la corriente real de diseño (I = P / (√3·V·cosφ) en trifásico). Un cos φ menor implica más corriente, breaker y cable más grandes.</div>
+      ` : ''}
 
       <div class="factor-row" style="margin-top:16px;">
         <span>Factor de Demanda</span>
@@ -558,9 +579,11 @@
     `;
 
     document.getElementById('fNombre').addEventListener('input', (e) => { c.nombre = e.target.value; renderTabs(); actualizarTodo(); });
-    document.getElementById('fTipo').addEventListener('input', (e) => { c.tipo = e.target.value; actualizarHintTipo(); actualizarTodo(); });
+    document.getElementById('fTipo').addEventListener('input', (e) => { c.tipo = e.target.value; renderFormulario(); });
     document.getElementById('fVoltaje').addEventListener('input', (e) => { c.voltaje = parseFloat(e.target.value); actualizarTodo(); });
     document.getElementById('fFase').addEventListener('input', (e) => { c.fase = e.target.value; actualizarTodo(); });
+    const fCosFiEl = document.getElementById('fCosFi');
+    if (fCosFiEl) fCosFiEl.addEventListener('input', (e) => { c.cosFi = parseFloat(e.target.value) || 0.85; actualizarTodo(); });
     document.getElementById('fDemanda').addEventListener('input', (e) => {
       c.demanda = parseFloat(e.target.value);
       document.getElementById('demandaValue').textContent = c.demanda.toFixed(2);
@@ -653,7 +676,10 @@
       const data = JSON.parse(raw);
       if (!data || !Array.isArray(data.circuitos) || data.circuitos.length === 0) return false;
       circuitos = data.circuitos;
-      circuitos.forEach(c => { if (!c.fase) c.fase = 'mono'; }); // compatibilidad con proyectos guardados antes de este campo
+      circuitos.forEach(c => {
+        if (!c.fase) c.fase = 'mono'; // compatibilidad con proyectos guardados antes de este campo
+        if (!c.cosFi) c.cosFi = 0.85; // compatibilidad con proyectos guardados antes de este campo
+      });
       norma = (data.norma === 'nec') ? 'nec' : 'iec'; // compatibilidad con proyectos guardados antes de este campo (default IEC, que era el comportamiento previo)
       activoIndex = Math.min(Math.max(data.activoIndex || 0, 0), circuitos.length - 1);
       Object.assign(datosInforme, data.datosInforme || {});
@@ -701,6 +727,9 @@
       const continuaAviso = c.seguridad > 1
         ? `<div class="hint" style="margin-top:-4px;">Breaker incluye factor de seguridad ×${parseFloat(c.seguridad).toFixed(2)} (${c.seguridad >= 1.25 && c.seguridad < 1.6 ? 'carga continua, +25% recomendado para cargas >3h' : 'pico de arranque'}) sobre la corriente de diseño.</div>`
         : '';
+      const cosFiAviso = (c.tipo === 'motor')
+        ? `<div class="hint" style="margin-top:-4px;">Corriente de diseño incluye cos φ = ${r.cosFi.toFixed(2)} (factor de potencia del motor).</div>`
+        : '';
       const normaAviso = `<div class="hint">Norma: <strong>${norma === 'nec' ? 'NEC (AWG)' : 'IEC/AEA (mm²)'}</strong> · ampacidad de cobre, 30°C ambiente, ${norma === 'nec' ? 'Tabla 310.16 col. 60°C' : 'tabla habitual de instalación domiciliaria'}.</div>`;
       resultadosEl.innerHTML = `
         <div class="result-row"><span>Potencia total instalada</span><span class="val">${r.totalPotencia.toLocaleString('es-AR')} W</span></div>
@@ -708,6 +737,7 @@
         <div class="result-row"><span>Corriente de diseño</span><span class="val">${r.corrienteDiseno.toFixed(2)} A</span></div>
         <div class="result-row"><span>Breaker recomendado</span><span class="val">${r.breaker} A · Curva ${r.curva}${gfciBadge}</span></div>
         ${continuaAviso}
+        ${cosFiAviso}
         <div class="result-row"><span>Conductor (cobre)</span><span class="val">${r.cableLabel}</span></div>
         <div class="result-row"><span>Caída de tensión estimada</span><span class="val">${r.caida.toFixed(2)} % (límite ${MAX_CAIDA_PORC}%) ${r.caida <= MAX_CAIDA_PORC ? '<span class="badge ok">OK</span>' : '<span class="badge warn">Alta</span>'}</span></div>
         ${normaAviso}
@@ -787,7 +817,7 @@
       svg += `<rect x="${drx}" y="${dry}" width="${drw}" height="${drh}" rx="4" fill="#fff" stroke="${navy}" stroke-width="2"/>`;
       svg += `<text x="${xDiff}" y="${yLine + 5}" text-anchor="middle" font-size="11" font-weight="800" fill="${navy}">ID</text>`;
       svg += `<text x="${xDiff}" y="${yLine + 30}" text-anchor="middle" font-size="11" font-weight="800" fill="#0f172a">DIFERENCIAL</text>`;
-      svg += `<text x="${xDiff}" y="${yLine + 44}" text-anchor="middle" font-size="10" fill="${gray}">GFCI/ID 30mA</text>`;
+      svg += `<text x="${xDiff}" y="${yLine + 44}" text-anchor="middle" font-size="10" fill="${gray}">GFCI/ID 30mA · ${c.fase === 'tri' ? 'Tetrapolar' : 'Bipolar'}</text>`;
       // Línea diferencial -> carga, con etiqueta de cable arriba
       svg += `<line x1="${xDiff + 26}" y1="${yLine}" x2="${xCarga - 34}" y2="${yLine}" stroke="${navy}" stroke-width="2"/>`;
       svg += `<text x="${(xDiff + xCarga) / 2}" y="${yLine - 12}" text-anchor="middle" font-size="10" fill="${gray}">L=${c.distancia}m · ${r.cableLabel}</text>`;
@@ -840,6 +870,7 @@
       <span>Potencia: <b>${r.totalPotencia.toLocaleString('es-AR')} W</b></span>
       <span>Corregida: <b>${r.potenciaEfectiva.toLocaleString('es-AR', { maximumFractionDigits: 0 })} W</b></span>
       <span>Con FS: <b>${r.corrienteDiseno.toFixed(2)} A</b> (×${parseFloat(c.seguridad).toFixed(2)})</span>
+      ${c.tipo === 'motor' ? `<span>Cos φ: <b>${r.cosFi.toFixed(2)}</b></span>` : ''}
     </div>`;
 
     if (r.excede) {
@@ -864,7 +895,7 @@
     const caidaOk = r.caida <= MAX_CAIDA_PORC;
     const detalle = `<div class="estado-detalle">
       <div class="ed-row">Caída de tensión: <b>${r.caida.toFixed(2)}%</b> — <span class="${caidaOk ? 'ok-txt' : 'warn-txt'}">${caidaOk ? 'OK' : 'ALTA'}</span></div>
-      <div class="ed-row">Interruptor diferencial sugerido: <b>${r.gfci ? '30 mA / Clase A (GFCI/ID)' : 'No requerido para este tipo de circuito'}</b>${r.gfciForzado ? ' <span class="warn-txt">(exigido por artefacto de riesgo húmedo detectado en la carga, no por el tipo de circuito)</span>' : ''}</div>
+      <div class="ed-row">Interruptor diferencial sugerido: <b>${r.gfci ? `30 mA / Clase A / ${c.fase === 'tri' ? 'Tetrapolar (4P)' : 'Bipolar (2P)'} (GFCI/ID)` : 'No requerido para este tipo de circuito'}</b>${r.gfciForzado ? ' <span class="warn-txt">(exigido por artefacto de riesgo húmedo detectado en la carga, no por el tipo de circuito)</span>' : ''}</div>
     </div>`;
     const diagrama = `<div class="diagrama-titulo">DIAGRAMA UNIFILAR</div>${diagramaSVGInforme(c, r)}`;
 
@@ -921,7 +952,11 @@
 
       potenciaTotal += r.totalPotencia;
       corrienteTotal += r.corrienteDiseno;
-      cableAgg[r.cableLabel] = (cableAgg[r.cableLabel] || 0) + c.distancia * 1.15;
+      // Metros TOTALES de conductor para este circuito: la longitud declarada (+15% de margen)
+      // multiplicada por la cantidad de conductores que realmente necesita según fase y tipo
+      // (3 en monofásico; 4 o 5 en trifásico). Antes se sumaba solo "c.distancia*1.15" sin
+      // importar la fase, lo que subestimaba el material en cualquier circuito trifásico.
+      cableAgg[r.cableLabel] = (cableAgg[r.cableLabel] || 0) + c.distancia * 1.15 * numConductores(c);
       const bKey = `${r.breaker}|${r.curva}`;
       breakerAgg[bKey] = (breakerAgg[bKey] || { breaker: r.breaker, curva: r.curva, cant: 0 });
       breakerAgg[bKey].cant++;
@@ -930,8 +965,9 @@
       if (r.gfci) {
         const diffRating = DIFERENCIALES.find(d => d >= r.breaker) || DIFERENCIALES[DIFERENCIALES.length - 1];
         const sens = 30;
-        const dKey = `${diffRating}|${sens}`;
-        diffAgg[dKey] = (diffAgg[dKey] || { diffRating, sens, cant: 0 });
+        const polos = c.fase === 'tri' ? '4P' : '2P'; // trifásico exige diferencial tetrapolar, no bipolar
+        const dKey = `${diffRating}|${sens}|${polos}`;
+        diffAgg[dKey] = (diffAgg[dKey] || { diffRating, sens, polos, cant: 0 });
         diffAgg[dKey].cant++;
       }
 
@@ -962,14 +998,14 @@
       `<tr><td>${b.cant}</td><td>Breaker ${b.breaker}A - Curva ${b.curva}</td></tr>`
     ).join('') || '<tr><td colspan="2">Sin datos suficientes</td></tr>';
 
-    const filasDiff = Object.values(diffAgg).sort((a, b) => a.diffRating - b.diffRating).map(d =>
-      `<tr><td>${d.cant}</td><td>In ${d.diffRating} A / ${d.sens} mA / Clase A</td></tr>`
+    const filasDiff = Object.values(diffAgg).sort((a, b) => a.diffRating - b.diffRating || a.polos.localeCompare(b.polos)).map(d =>
+      `<tr><td>${d.cant}</td><td>In ${d.diffRating} A / ${d.sens} mA / Clase A / ${d.polos === '4P' ? 'Tetrapolar (4P)' : 'Bipolar (2P)'}</td></tr>`
     ).join('') || '<tr><td colspan="2">Sin datos suficientes</td></tr>';
 
     html += `<div class="materiales-page">
       <div class="mp-titulo" style="margin-top:0;">LISTA DE CABLE POR CALIBRE</div>
-      <table><thead><tr><th>Calibre</th><th>Metros por conductor (fase, neutro, tierra)</th></tr></thead><tbody>${filasCable}</tbody></table>
-      <div class="mp-nota">Los metros indicados son por conductor. Para cada calibre se necesitan tres tramos de esa longitud (fase, neutro y tierra). Se incluye un margen del 15% sobre la distancia declarada de cada circuito.</div>
+      <table><thead><tr><th>Calibre</th><th>Metros totales de conductor</th></tr></thead><tbody>${filasCable}</tbody></table>
+      <div class="mp-nota">Los metros indicados son el total de conductor a comprar por calibre, sumando todos los conductores necesarios de cada circuito (con un margen del 15% sobre la distancia declarada). Se asumen 3 conductores por circuito monofásico (fase, neutro, tierra); 5 en trifásico con neutro (3 fases + neutro + tierra); y 4 en trifásico tipo "Motor" sin neutro (3 fases + tierra).</div>
 
       <div class="mp-titulo">LISTA DE BREAKERS</div>
       <table><thead><tr><th>Cantidad</th><th>Especificación</th></tr></thead><tbody>${filasBreakers}</tbody></table>
