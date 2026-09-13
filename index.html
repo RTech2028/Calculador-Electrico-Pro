@@ -170,7 +170,7 @@
   <div class="topbar">
     <div>
       <h1>⚡ Calculadora Eléctrica Profesional</h1>
-      <input type="text" id="proyectoNombre" class="proyecto-input" value="Mi Proyecto Eléctrico">
+      <input type="text" id="proyectoNombre" class="proyecto-input" placeholder="Nombre del proyecto..." value="">
     </div>
     <button class="export-btn" id="exportPdf" style="display:none;">⬇ Exportar PDF del proyecto</button>
   </div>
@@ -218,7 +218,7 @@
     <div id="resumenContenido"></div>
   </div>
 
-  <div class="dev-footer">Desarrollador Web: <strong>Juan Pablo Rodríguez</strong></div>
+  <div class="dev-footer">Desarrollador Web: <strong>Juan Pablo Rodríguez</strong><br>© <span id="footerYear"></span> Todos los derechos reservados.</div>
 </div>
 
 <a class="whatsapp-float" href="https://wa.me/5493813399196" target="_blank" rel="noopener" title="Contactar por WhatsApp" aria-label="Contactar por WhatsApp">
@@ -703,7 +703,7 @@
       norma = (data.norma === 'nec') ? 'nec' : 'iec'; // compatibilidad con proyectos guardados antes de este campo (default IEC, que era el comportamiento previo)
       activoIndex = Math.min(Math.max(data.activoIndex || 0, 0), circuitos.length - 1);
       Object.assign(datosInforme, data.datosInforme || {});
-      document.getElementById('proyectoNombre').value = data.proyectoNombre || 'Mi Proyecto Eléctrico';
+      document.getElementById('proyectoNombre').value = data.proyectoNombre || '';
       document.getElementById('infCliente').value = datosInforme.cliente || '';
       document.getElementById('infElectricista').value = datosInforme.electricista || '';
       document.getElementById('infObra').value = datosInforme.obra || '';
@@ -1049,6 +1049,7 @@
   });
 
   // ---------- Init ----------
+  document.getElementById('footerYear').textContent = new Date().getFullYear();
   if (!cargarEstado()) {
     circuitos.push(nuevoCircuito('Circuito 1'));
   }
