@@ -172,7 +172,12 @@
       <h1>⚡ Calculadora Eléctrica Profesional</h1>
       <input type="text" id="proyectoNombre" class="proyecto-input" placeholder="Nombre del proyecto..." value="">
     </div>
-    <button class="export-btn" id="exportPdf" style="display:none;">⬇ Exportar PDF del proyecto</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="export-btn" id="exportJson" style="background:#fff;color:var(--blue);border:1px solid var(--blue);">💾 Guardar proyecto</button>
+      <button class="export-btn" id="importJsonBtn" style="background:#fff;color:var(--blue);border:1px solid var(--blue);">📂 Abrir proyecto</button>
+      <input type="file" id="importJsonInput" accept="application/json" style="display:none;">
+      <button class="export-btn" id="exportPdf" style="display:none;">⬇ Exportar PDF del proyecto</button>
+    </div>
   </div>
   <div class="subtitle">Dimensionamiento de circuitos: corriente, breaker, diferencial, calibre de conductor, caída de tensión y diagrama unifilar.</div>
 
@@ -758,6 +763,74 @@
       return true;
     } catch (e) { return false; }
   }
+
+  // ---------- Exportar / Importar proyecto (.json) ----------
+  // Reutiliza exactamente la misma forma de datos que guardarEstado/cargarEstado (localStorage),
+  // así que un archivo exportado es 100% compatible con lo que ya sabe leer cargarEstado.
+  function datosProyectoActual() {
+    return {
+      proyectoNombre: document.getElementById('proyectoNombre').value,
+      datosInforme, circuitos, activoIndex, norma
+    };
+  }
+
+  document.getElementById('exportJson').addEventListener('click', () => {
+    const data = datosProyectoActual();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const nombreArchivo = (data.proyectoNombre || 'proyecto-electrico').trim().replace(/[^a-z0-9-_]+/gi, '_');
+    a.href = url;
+    a.download = `${nombreArchivo || 'proyecto-electrico'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  const importJsonInput = document.getElementById('importJsonInput');
+  document.getElementById('importJsonBtn').addEventListener('click', () => importJsonInput.click());
+  importJsonInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data || !Array.isArray(data.circuitos) || data.circuitos.length === 0) {
+          alert('El archivo no tiene un formato de proyecto válido.');
+          return;
+        }
+        if (!confirm('Importar este proyecto reemplaza el proyecto actual (no guardado se pierde). ¿Continuar?')) return;
+        // Se aplica la MISMA normalización de compatibilidad que ya usa cargarEstado, para que
+        // un archivo exportado por una versión anterior de la app (sin fase/cosFi/curvaManual)
+        // se siga pudiendo abrir sin romper el cálculo.
+        circuitos = data.circuitos;
+        circuitos.forEach(c => {
+          if (!c.fase) c.fase = 'mono';
+          if (!c.cosFi) c.cosFi = 0.85;
+          if (!c.curvaManual) c.curvaManual = 'auto';
+        });
+        norma = (data.norma === 'nec') ? 'nec' : 'iec';
+        activoIndex = Math.min(Math.max(data.activoIndex || 0, 0), circuitos.length - 1);
+        Object.assign(datosInforme, { cliente: '', electricista: '', obra: '', observaciones: '' }, data.datosInforme || {});
+        document.getElementById('proyectoNombre').value = data.proyectoNombre || '';
+        document.getElementById('infCliente').value = datosInforme.cliente || '';
+        document.getElementById('infElectricista').value = datosInforme.electricista || '';
+        document.getElementById('infObra').value = datosInforme.obra || '';
+        document.getElementById('infObservaciones').value = datosInforme.observaciones || '';
+        actualizarHintNorma();
+        renderTabs();
+        renderFormulario();
+        guardarEstado();
+      } catch (err) {
+        alert('No se pudo leer el archivo: asegurate de que sea un .json exportado por esta calculadora.');
+      } finally {
+        importJsonInput.value = ''; // permite volver a elegir el mismo archivo si hace falta
+      }
+    };
+    reader.readAsText(file);
+  });
 
   function actualizarTodo() {
     const c = circuitos[activoIndex];
