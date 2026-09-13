@@ -252,7 +252,7 @@
   const TIPOS = {
     iluminacion: {label:'Iluminación', curva:'B', gfci:false, maxBreaker:{iec:16, nec:15}},
     tomas:       {label:'Tomacorrientes', curva:'C', gfci:false, maxBreaker:{iec:20, nec:20}},
-    humeda:      {label:'Húmeda (baño/cocina/exterior)', curva:'C', gfci:true, maxBreaker:{iec:20, nec:20}},
+    humeda:      {label:'Húmeda (baño/cocina/exterior)', curva:'C', gfci:true, maxBreaker:{iec:20, nec:20}, minMm2:2.5},
     uso_especial:{label:'Uso especial / Artefacto fijo (cocina, horno, termotanque grande)', curva:'C', gfci:false, maxBreaker:null},
     motor:       {label:'Motor / Alto arranque', curva:'D', gfci:false, maxBreaker:null},
   };
@@ -289,6 +289,14 @@
     }
     const n = parseFloat(s);
     return isNaN(n) ? NaN : n;
+  }
+
+  // Escapa texto libre del usuario antes de insertarlo en HTML (atributos o contenido de texto),
+  // para que comillas, < o > no corten el markup y rompan el formulario o el informe.
+  function escaparHtml(valor) {
+    return String(valor ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
   }
 
   // Palabras clave de artefactos húmedos / de riesgo eléctrico directo. Si aparecen en el
@@ -403,6 +411,11 @@
     if (esNec) {
       idx = CABLES_NEC.findIndex(cb => cb[1] >= breaker);
       if (idx === -1) idx = CABLES_NEC.length - 1;
+      // Mismo piso normativo que en la rama IEC, comparando por el área real (mm2Ref) del AWG.
+      if (tipoInfo.minMm2) {
+        const idxMin = CABLES_NEC.findIndex(cb => cb[2] >= tipoInfo.minMm2);
+        if (idxMin !== -1 && idxMin > idx) idx = idxMin;
+      }
       let cable = CABLES_NEC[idx];
       const factorCaida = esTrifasico ? Math.sqrt(3) : 2;
       function caidaPorcNec(mm2) { return ((factorCaida * c.distancia * corrienteDiseno * RESISTIVIDAD_CU) / mm2) / c.voltaje * 100; }
@@ -413,6 +426,12 @@
     } else {
       idx = CABLES_IEC.findIndex(cb => cb[1] >= breaker);
       if (idx === -1) idx = CABLES_IEC.length - 1;
+      // Piso normativo de sección por tipo de circuito (ej. "Húmeda" no debe bajar de 2.5mm²
+      // aunque la corriente calculada sea baja y alcance con un calibre menor por ampacidad).
+      if (tipoInfo.minMm2) {
+        const idxMin = CABLES_IEC.findIndex(cb => cb[0] >= tipoInfo.minMm2);
+        if (idxMin !== -1 && idxMin > idx) idx = idxMin;
+      }
       let cable = CABLES_IEC[idx];
       const factorCaida = esTrifasico ? Math.sqrt(3) : 2;
       function caidaPorcIec(mm2) { return ((factorCaida * c.distancia * corrienteDiseno * RESISTIVIDAD_CU) / mm2) / c.voltaje * 100; }
@@ -516,7 +535,7 @@
     const c = circuitos[activoIndex];
     formCircuito.innerHTML = `
       <label>Nombre del circuito</label>
-      <input type="text" id="fNombre" value="${c.nombre}">
+      <input type="text" id="fNombre" value="${escaparHtml(c.nombre)}">
 
       <label>Tipo de circuito</label>
       <select id="fTipo">
@@ -623,9 +642,9 @@
   function crearFilaCarga(circuito, carga) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><input type="text" class="nombre" placeholder="Ej: ducha" value="${carga.nombre}"></td>
-      <td><input type="text" inputmode="decimal" class="potencia" placeholder="Ej: 15000" value="${carga.potencia}"></td>
-      <td><input type="number" class="cantidad" min="1" value="${carga.cantidad}" style="width:60px"></td>
+      <td><input type="text" class="nombre" placeholder="Ej: ducha" value="${escaparHtml(carga.nombre)}"></td>
+      <td><input type="text" inputmode="decimal" class="potencia" placeholder="Ej: 15000" value="${escaparHtml(carga.potencia)}"></td>
+      <td><input type="number" class="cantidad" min="1" value="${escaparHtml(carga.cantidad)}" style="width:60px"></td>
       <td class="total-cell">0 W</td>
       <td><button class="del-btn" title="Eliminar">✕</button></td>
     `;
@@ -756,17 +775,17 @@
     circuitos.forEach(c => {
       const r = calcularCircuito(c);
       if (!r) {
-        filas += `<tr><td>${c.nombre || 'Sin nombre'}</td><td>${TIPOS[c.tipo].label}</td><td>${c.voltaje} V</td><td colspan="4" class="result-empty">Sin cargas cargadas</td></tr>`;
+        filas += `<tr><td>${escaparHtml(c.nombre) || 'Sin nombre'}</td><td>${TIPOS[c.tipo].label}</td><td>${c.voltaje} V</td><td colspan="4" class="result-empty">Sin cargas cargadas</td></tr>`;
       } else if (r.excede) {
         hayValidos = true;
         const motivoBadge = r.excedeTipo ? `Excede máx. de tipo (${r.maxBreakerTipo} A)` : `Excede tabla (${r.corrienteDiseno.toFixed(1)} A)`;
         const voltajeCellExcede = r.avisoVoltaje ? `${c.voltaje} V ⚠️` : `${c.voltaje} V`;
-        filas += `<tr><td>${c.nombre || 'Sin nombre'}</td><td>${TIPOS[c.tipo].label}</td><td>${voltajeCellExcede}</td><td colspan="4"><span class="badge warn">${motivoBadge}</span></td></tr>`;
+        filas += `<tr><td>${escaparHtml(c.nombre) || 'Sin nombre'}</td><td>${TIPOS[c.tipo].label}</td><td>${voltajeCellExcede}</td><td colspan="4"><span class="badge warn">${motivoBadge}</span></td></tr>`;
       } else {
         hayValidos = true;
         const voltajeCell = r.avisoVoltaje ? `${c.voltaje} V ⚠️` : `${c.voltaje} V`;
         filas += `<tr>
-          <td>${c.nombre || 'Sin nombre'}</td><td>${r.tipoLabel}</td><td>${voltajeCell}</td>
+          <td>${escaparHtml(c.nombre) || 'Sin nombre'}</td><td>${r.tipoLabel}</td><td>${voltajeCell}</td>
           <td>${r.breaker} A / Curva ${r.curva}${r.gfci ? ' + GFCI' : ''}</td>
           <td>${r.cableLabel}</td>
           <td>${r.caida.toFixed(2)} %</td>
@@ -845,12 +864,12 @@
   }
 
   function paginaCircuito(c, r, numero) {
-    const info = `<div class="circuito-bar"><span>CIRCUITO ${numero}: ${c.nombre || 'Sin nombre'}</span><span>${new Date().toLocaleDateString('es-AR')}</span></div>`;
+    const info = `<div class="circuito-bar"><span>CIRCUITO ${numero}: ${escaparHtml(c.nombre) || 'Sin nombre'}</span><span>${new Date().toLocaleDateString('es-AR')}</span></div>`;
     const filas = c.cargas.map((carga, i) => {
       const potParseada = Math.max(parseNumeroAr(carga.potencia) || 0, 0);
       const cantParseada = Math.max(parseNumeroAr(carga.cantidad) || 0, 0);
       const total = potParseada * cantParseada;
-      return `<tr><td>${i + 1}</td><td>${carga.nombre || '—'}</td><td>${potParseada.toLocaleString('es-AR')} W</td><td>${cantParseada}</td><td>${total.toLocaleString('es-AR')} W</td></tr>`;
+      return `<tr><td>${i + 1}</td><td>${escaparHtml(carga.nombre) || '—'}</td><td>${potParseada.toLocaleString('es-AR')} W</td><td>${cantParseada}</td><td>${total.toLocaleString('es-AR')} W</td></tr>`;
     }).join('');
     const tabla = `<table class="artefactos-table"><thead><tr><th>#</th><th>Artefacto</th><th>Potencia</th><th>Cant.</th><th>Total</th></tr></thead><tbody>${filas}</tbody></table>`;
     const avisoVolt = avisoVoltaje(c);
@@ -912,12 +931,12 @@
       ['Electricista / Empresa', datosInforme.electricista || '—'],
       ['N° de Obra / Informe', datosInforme.obra || '—'],
       ['Fecha', ahora],
-    ].map(([lbl, val]) => `<span class="lbl">${lbl}:</span> <span>${val}</span>`).join('');
+    ].map(([lbl, val]) => `<span class="lbl">${lbl}:</span> <span>${escaparHtml(val)}</span>`).join('');
 
     let html = `
       <div class="informe-header">
         <div class="ih-title">INFORME TÉCNICO DE CÁLCULO DE CIRCUITOS</div>
-        <div class="ih-sub">${proyectoNombre} · Calculadora Eléctrica Profesional · ${circuitos.length} circuito${circuitos.length === 1 ? '' : 's'}</div>
+        <div class="ih-sub">${escaparHtml(proyectoNombre)} · Calculadora Eléctrica Profesional · ${circuitos.length} circuito${circuitos.length === 1 ? '' : 's'}</div>
         <div class="ih-fecha">Fecha: ${ahora}</div>
       </div>
       <div class="datos-trabajo">
@@ -1015,7 +1034,7 @@
       <div class="mp-nota">Diferencial de 30 mA Clase A recomendado para circuitos húmedos (baño/cocina/exterior) por protección personal directa. Los demás tipos de circuito no se incluyen automáticamente en esta lista; evaluar caso por caso según la reglamentación vigente (en muchas normativas, todo circuito de tomacorrientes también debería llevar protección diferencial).</div>
 
       <div class="mp-titulo">OBSERVACIONES TÉCNICAS</div>
-      <div class="mp-obs">${datosInforme.observaciones ? datosInforme.observaciones.replace(/</g, '&lt;') : '—'}</div>
+      <div class="mp-obs">${datosInforme.observaciones ? escaparHtml(datosInforme.observaciones) : '—'}</div>
 
       <div class="mp-firmas">
         <div class="mp-firma">Firma del Cliente</div>
