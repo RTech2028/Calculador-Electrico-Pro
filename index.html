@@ -499,7 +499,7 @@
       const btn = document.createElement('button');
       btn.className = 'tab-btn' + (i === activoIndex ? ' active' : '');
       btn.textContent = c.nombre || `Circuito ${i + 1} (sin nombre)`;
-      btn.addEventListener('click', () => { activoIndex = i; renderFormulario(); });
+      btn.addEventListener('click', () => { activoIndex = i; renderTabs(); renderFormulario(); });
       if (circuitos.length > 1) {
         const close = document.createElement('button');
         close.className = 'tab-close';
