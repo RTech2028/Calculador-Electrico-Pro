@@ -636,7 +636,7 @@
       const total = Math.max(parseNumeroAr(carga.potencia) || 0, 0) * Math.max(parseNumeroAr(carga.cantidad) || 0, 0);
       tr.querySelector('.total-cell').textContent = total.toLocaleString('es-AR') + ' W';
     }
-    nombreInp.addEventListener('input', () => { carga.nombre = nombreInp.value; });
+    nombreInp.addEventListener('input', () => { carga.nombre = nombreInp.value; actualizarTotalFila(); actualizarTodo(); });
     potInp.addEventListener('input', () => {
       carga.potencia = potInp.value; actualizarTotalFila(); actualizarTodo();
     });
