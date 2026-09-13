@@ -506,9 +506,9 @@
   }
 
   // ---------- Diagrama unifilar (SVG) ----------
-  function diagramaSVG(r) {
+  function diagramaSVG(r, c) {
     const boxes = [
-      { title: 'TABLERO', sub: '' },
+      { title: 'TABLERO', sub: c ? `${c.voltaje} V` : '' },
       { title: 'BREAKER', sub: `${r.breaker} A · Curva ${r.curva}` },
     ];
     if (r.gfci) boxes.push({ title: 'DIFERENCIAL', sub: `GFCI/ID 30mA · ${r.esTrifasico ? '4P' : '2P'}` });
@@ -812,7 +812,7 @@
         ${gfciAviso}
         ${avisoVoltajeHtml}
       `;
-      diagramaEl.innerHTML = `<div class="diagrama-box"><h3>Diagrama unifilar</h3>${diagramaSVG(r)}</div>`;
+      diagramaEl.innerHTML = `<div class="diagrama-box"><h3>Diagrama unifilar</h3>${diagramaSVG(r, c)}</div>`;
     }
 
     renderResumen();
