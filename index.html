@@ -698,6 +698,7 @@
       circuitos.forEach(c => {
         if (!c.fase) c.fase = 'mono'; // compatibilidad con proyectos guardados antes de este campo
         if (!c.cosFi) c.cosFi = 0.85; // compatibilidad con proyectos guardados antes de este campo
+        if (!c.curvaManual) c.curvaManual = 'auto'; // compatibilidad con proyectos guardados antes de este campo
       });
       norma = (data.norma === 'nec') ? 'nec' : 'iec'; // compatibilidad con proyectos guardados antes de este campo (default IEC, que era el comportamiento previo)
       activoIndex = Math.min(Math.max(data.activoIndex || 0, 0), circuitos.length - 1);
@@ -777,7 +778,6 @@
       if (!r) {
         filas += `<tr><td>${escaparHtml(c.nombre) || 'Sin nombre'}</td><td>${TIPOS[c.tipo].label}</td><td>${c.voltaje} V</td><td colspan="4" class="result-empty">Sin cargas cargadas</td></tr>`;
       } else if (r.excede) {
-        hayValidos = true;
         const motivoBadge = r.excedeTipo ? `Excede máx. de tipo (${r.maxBreakerTipo} A)` : `Excede tabla (${r.corrienteDiseno.toFixed(1)} A)`;
         const voltajeCellExcede = r.avisoVoltaje ? `${c.voltaje} V ⚠️` : `${c.voltaje} V`;
         filas += `<tr><td>${escaparHtml(c.nombre) || 'Sin nombre'}</td><td>${TIPOS[c.tipo].label}</td><td>${voltajeCellExcede}</td><td colspan="4"><span class="badge warn">${motivoBadge}</span></td></tr>`;
