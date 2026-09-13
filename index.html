@@ -509,7 +509,12 @@
           e.stopPropagation();
           if (!confirm(`¿Eliminar "${c.nombre}"?`)) return;
           circuitos.splice(i, 1);
-          if (activoIndex >= circuitos.length) activoIndex = circuitos.length - 1;
+          // Si se borra una pestaña ANTERIOR a la activa, el índice de la activa debe
+          // correrse un lugar hacia atrás (el splice ya movió todo lo posterior a "i").
+          // Antes solo se recortaba cuando quedaba fuera de rango, lo que hacía que el
+          // circuito activo pasara a ser otro distinto sin aviso.
+          if (i < activoIndex) activoIndex--;
+          else if (activoIndex >= circuitos.length) activoIndex = circuitos.length - 1;
           renderTabs();
           renderFormulario();
         });
@@ -1006,9 +1011,20 @@
     </div>`;
 
     // ---- Página: Lista de materiales ----
-    // Orden numérico por el valor inicial de la etiqueta (2.5 mm², 12 AWG, etc.) en vez de
-    // alfabético, para que la lista no quede desordenada (ej. "10 mm²" antes que "2.5 mm²").
-    const filasCable = Object.keys(cableAgg).sort((a, b) => parseFloat(a) - parseFloat(b)).map(etiqueta => {
+    // Orden por calibre real (de más fino a más grueso) en vez de alfabético o de parseFloat
+    // directo sobre la etiqueta. parseFloat("1/0 AWG") y parseFloat("1 AWG") dan el mismo
+    // valor (1), igual que "2 AWG"/"2/0 AWG", "3 AWG"/"3/0 AWG" y "4 AWG"/"4/0 AWG" (parseFloat
+    // corta en el primer caracter no numérico), lo que desordenaba la lista de materiales en
+    // proyectos NEC con calibres grandes. En NEC se usa la posición real en CABLES_NEC (que ya
+    // está ordenada de más fino a más grueso); en IEC/AEA alcanza con el valor numérico en mm².
+    function indiceCalibre(etiqueta) {
+      if (norma === 'nec') {
+        const idx = CABLES_NEC.findIndex(cb => cb[0] === etiqueta);
+        return idx === -1 ? Infinity : idx;
+      }
+      return parseFloat(etiqueta);
+    }
+    const filasCable = Object.keys(cableAgg).sort((a, b) => indiceCalibre(a) - indiceCalibre(b)).map(etiqueta => {
       const metros = cableAgg[etiqueta];
       return `<tr><td>${etiqueta}</td><td>${metros.toFixed(1)} m</td></tr>`;
     }).join('') || '<tr><td colspan="2">Sin datos suficientes</td></tr>';
